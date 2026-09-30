@@ -3,7 +3,7 @@
 
 import { GPU } from "./gpu/device.js";
 import { SafeTensors } from "./weights.js";
-import { FILES, cachedFile, requestPersistence, setModelsBase } from "./store.js";
+import { FILES, cachedFile, requestPersistence } from "./store.js";
 import { Tokenizer } from "./vendor/tokenizers.min.mjs";
 import { T5Encoder } from "./models/t5.js";
 import { SupraDiT, CFG, patchify, unpatchify } from "./models/dit.js";
@@ -42,10 +42,9 @@ export class SupraPipeline {
   }
 
   // Downloads (first time only) and loads everything onto the GPU. modelsBase: URL of the folder
-  // holding the converted diffusion model.
+  // holding the model files.
   async load({ onStatus = () => {}, signal, modelsBase } = {}) {
     if (this.ready) { onStatus({ phase: "ready" }); return; }
-    setModelsBase(modelsBase);
     await requestPersistence();
     this.gpu = this.gpu || (await GPU.create(this.gpuOptions));
     const gpu = this.gpu;
@@ -55,7 +54,7 @@ export class SupraPipeline {
     const total = () => keys.reduce((a, k) => a + Math.max(got[k], FILES[k].bytes), 0);
     const files = {};
     for (const k of keys) {
-      files[k] = await cachedFile(FILES[k], (done) => {
+      files[k] = await cachedFile(FILES[k], modelsBase, (done) => {
         got[k] = done;
         onStatus({ phase: "download", file: FILES[k].label, done: keys.reduce((a, p) => a + got[p], 0), total: total() });
       }, signal);

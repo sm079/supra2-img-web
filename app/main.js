@@ -3,8 +3,10 @@ import { FILES, TOTAL_BYTES, cachedBytes, storageBytes, clearCache } from "./sto
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-// Folder holding the converted diffusion model (tools/convert_dit.py). ?models=<url> overrides it.
-const MODELS_URL = "./models/";
+// Model files live on Hugging Face, pinned to one commit: browsers cache files by name, so new
+// uploads only reach visitors when this points at the new commit. ?models=./models/ uses a local
+// build from tools/build_models.py.
+const MODELS_URL = "https://huggingface.co/sm079/supra2-img-web/resolve/7bdda2b40e98d7a71590dd19b5ce4c72a1d4dfc9/";
 const BASE = new URL(params.get("models") || MODELS_URL, location.href);
 if (!BASE.pathname.endsWith("/")) BASE.pathname += "/";
 

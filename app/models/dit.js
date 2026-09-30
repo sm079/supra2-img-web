@@ -64,22 +64,22 @@ export function timestepFeatures(t) {
 }
 
 export class SupraDiT {
-  // ck: SafeTensors with the EMA weights (tools/convert_dit.py)
-  static async load(gpu, ck, onProgress) {
+  // st: SafeTensors with the EMA weights (tools/build_models.py)
+  static async load(gpu, st, onProgress) {
     const m = new SupraDiT(gpu);
     const D = CFG.dim;
-    m.xEmbed = await uploadLinear(gpu, ck, "x_embed.");
-    m.pos = await ck.f32("pos_embed"); // [1, 256, 576]
-    m.t1 = await uploadLinear(gpu, ck, "t_embed.mlp.0.");
-    m.t2 = await uploadLinear(gpu, ck, "t_embed.mlp.2.");
-    m.ctxProj = await uploadLinear(gpu, ck, "ctx_proj.");
+    m.xEmbed = await uploadLinear(gpu, st, "x_embed.");
+    m.pos = await st.f32("pos_embed"); // [1, 256, 576]
+    m.t1 = await uploadLinear(gpu, st, "t_embed.mlp.0.");
+    m.t2 = await uploadLinear(gpu, st, "t_embed.mlp.2.");
+    m.ctxProj = await uploadLinear(gpu, st, "ctx_proj.");
     // every adaLN linear stacked into one [MOD_ALL, 576] matrix: one GEMM per sampling run
     const adaW = new Float32Array(MOD_ALL * D);
     const adaB = new Float32Array(MOD_ALL);
     const stack = async (base, row) => {
-      const w = await ck.f32(base + "weight");
+      const w = await st.f32(base + "weight");
       adaW.set(w, row * D);
-      adaB.set(await ck.f32(base + "bias"), row);
+      adaB.set(await st.f32(base + "bias"), row);
       return w.length / D;
     };
     m.blocks = [];
@@ -87,19 +87,19 @@ export class SupraDiT {
       const p = `blocks.${i}.`;
       await stack(p + "adaln.1.", i * MOD_BLOCK);
       m.blocks.push({
-        qkv: await uploadLinear(gpu, ck, p + "self_attn.qkv."),
-        proj: await uploadLinear(gpu, ck, p + "self_attn.proj."),
-        q: await uploadLinear(gpu, ck, p + "cross_attn.q."),
-        kv: await uploadLinear(gpu, ck, p + "cross_attn.kv."),
-        cproj: await uploadLinear(gpu, ck, p + "cross_attn.proj."),
-        fc1: await uploadLinear(gpu, ck, p + "mlp.0."),
-        fc2: await uploadLinear(gpu, ck, p + "mlp.2."),
+        qkv: await uploadLinear(gpu, st, p + "self_attn.qkv."),
+        proj: await uploadLinear(gpu, st, p + "self_attn.proj."),
+        q: await uploadLinear(gpu, st, p + "cross_attn.q."),
+        kv: await uploadLinear(gpu, st, p + "cross_attn.kv."),
+        cproj: await uploadLinear(gpu, st, p + "cross_attn.proj."),
+        fc1: await uploadLinear(gpu, st, p + "mlp.0."),
+        fc2: await uploadLinear(gpu, st, p + "mlp.2."),
       });
       onProgress?.((i + 1) / CFG.depth);
     }
     await stack("final.adaln.1.", CFG.depth * MOD_BLOCK);
     m.ada = linearFromArray(gpu, adaW, MOD_ALL, D, adaB);
-    m.final = await uploadLinear(gpu, ck, "final.linear.");
+    m.final = await uploadLinear(gpu, st, "final.linear.");
     return m;
   }
 

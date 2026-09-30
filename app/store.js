@@ -1,51 +1,19 @@
-// Model files: where they come from, and the one-time download into the Origin Private File
-// System (OPFS).
+// Model files and the one-time download into the Origin Private File System (OPFS).
 //
-// The text encoder, VAE and tokenizer are fetched straight from their original Hugging Face repos,
-// pinned to a commit. From those two large safetensors files only the needed tensors are
-// downloaded (Flan-T5's encoder, the VAE's decoder): the app fetches the file's JSON header
-// first, then just those byte ranges, and saves them as a smaller safetensors file.
-// The diffusion model is SupraLabs' checkpoint converted to safetensors (tools/convert_dit.py),
-// loaded from MODELS_BASE (see setModelsBase).
-//
-// Files are written to "<name>.part" in place (download.js), so an interrupted download resumes
-// with an HTTP Range request. A finished file is renamed to its final name and reused on later
-// visits. Names include the pinned commit, so a future update never mixes old and new files.
+// The files live in a Hugging Face model repo (built by tools/build_models.py). Files are
+// written to "<name>.part" in place (download.js), so an interrupted download resumes with an
+// HTTP Range request. A finished file is renamed to its final name and reused on later visits.
 
-import { downloadToOPFS, OPFS_DIR as DIR, planSize } from "./download.js";
+import { downloadToOPFS, OPFS_DIR as DIR } from "./download.js";
 
-const HF = "https://huggingface.co";
-const T5_REV = "7bcac572ce56db69c1ea7c8af255c5d7c9672fc2";
-
-// bytes: download size (for extracts, the kept tensor data; the new header adds a few KB)
 export const FILES = {
-  dit: {
-    // converted from SupraLabs/Supra2-IMG@b22ffe6c model_final_ema.pt
-    label: "image model", path: "supra2-img-ema.safetensors", cache: "supra2-img--b22ffe6c--ema.safetensors", bytes: 416405344,
-  },
-  te: {
-    label: "text encoder", repo: "google/flan-t5-base", rev: T5_REV, path: "model.safetensors", bytes: 438514176,
-    keep: (n) => n.startsWith("encoder.") || n === "shared.weight",
-  },
-  vae: {
-    label: "image decoder", repo: "stabilityai/sd-vae-ft-mse", rev: "31f26fdeee1355a5c34592e401dd41e45d25a493",
-    path: "diffusion_pytorch_model.safetensors", bytes: 197960796,
-    keep: (n) => n.startsWith("decoder.") || n.startsWith("post_quant_conv."),
-  },
-  tokenizer: { label: "tokenizer", repo: "google/flan-t5-base", rev: T5_REV, path: "tokenizer.json", bytes: 2424064 },
-  tokenizerConfig: { label: "tokenizer", repo: "google/flan-t5-base", rev: T5_REV, path: "tokenizer_config.json", bytes: 2537 },
+  dit: { label: "image model", path: "supra2-img-ema.safetensors", bytes: 416405320 },
+  te: { label: "text encoder", path: "flan-t5-base-encoder.safetensors", bytes: 438527456 },
+  vae: { label: "image decoder", path: "sd-vae-ft-mse-decoder.safetensors", bytes: 197976468 },
+  tokenizer: { label: "tokenizer", path: "tokenizer.json", bytes: 2424064 },
+  tokenizerConfig: { label: "tokenizer", path: "tokenizer_config.json", bytes: 2537 },
 };
 export const TOTAL_BYTES = Object.values(FILES).reduce((a, f) => a + f.bytes, 0);
-
-let modelsBase = null;
-// Where files without a repo (the converted diffusion model) are downloaded from.
-export function setModelsBase(url) {
-  modelsBase = url;
-}
-
-export const fileUrl = (f) => (f.repo ? `${HF}/${f.repo}/resolve/${f.rev}/${f.path}` : new URL(f.path, modelsBase).href);
-// OPFS name: repo, commit and what was kept
-export const cacheName = (f) => f.cache || `${f.repo.replace("/", "--")}--${f.rev.slice(0, 8)}--${f.keep ? "extract--" : ""}${f.path}`;
 
 const IN_WORKER = typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope;
 
@@ -70,43 +38,6 @@ export async function requestPersistence() {
   }
 }
 
-async function fetchRange(url, start, end, signal) {
-  const res = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` }, signal });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
-  const buf = new Uint8Array(await res.arrayBuffer());
-  // a server that ignores Range sends the whole file
-  return res.status === 206 ? buf : buf.subarray(start, end);
-}
-
-// What to download: a whole file, or a new safetensors header + the kept tensors' byte ranges.
-async function plan(f, signal) {
-  if (!f.keep) return { prefix: new Uint8Array(0), pieces: [[0, f.bytes]] };
-  const url = fileUrl(f);
-  const n = Number(new DataView((await fetchRange(url, 0, 8, signal)).buffer).getBigUint64(0, true));
-  const header = JSON.parse(new TextDecoder().decode(await fetchRange(url, 8, 8 + n, signal)));
-  const base = 8 + n;
-  const kept = Object.entries(header)
-    .filter(([name]) => name !== "__metadata__" && f.keep(name))
-    .sort((a, b) => a[1].data_offsets[0] - b[1].data_offsets[0]);
-  const out = {};
-  const pieces = [];
-  let off = 0;
-  for (const [name, t] of kept) {
-    const [a, b] = t.data_offsets;
-    out[name] = { dtype: t.dtype, shape: t.shape, data_offsets: [off, off + b - a] };
-    off += b - a;
-    const last = pieces.at(-1);
-    if (last && last[1] === base + a) last[1] = base + b; else pieces.push([base + a, base + b]);
-  }
-  let json = JSON.stringify({ __metadata__: { source: `${f.repo}@${f.rev}/${f.path}` }, ...out });
-  json += " ".repeat((8 - (json.length % 8)) % 8); // keep the data 8-byte aligned
-  const hb = new TextEncoder().encode(json);
-  const prefix = new Uint8Array(8 + hb.length);
-  new DataView(prefix.buffer).setBigUint64(0, BigInt(hb.length), true);
-  prefix.set(hb, 8);
-  return { prefix, pieces };
-}
-
 function download(args, onProgress, signal) {
   if (IN_WORKER) return downloadToOPFS({ ...args, signal, onProgress });
   return new Promise((resolve, reject) => {
@@ -128,40 +59,40 @@ function download(args, onProgress, signal) {
   });
 }
 
-// Returns the cached File for `f`, downloading it first if needed. onProgress(bytesDone, bytesTotal)
-export async function cachedFile(f, onProgress, signal) {
+// Returns the cached File for `f`, downloading it from `base` first if needed.
+// onProgress(bytesDone, bytesTotal)
+export async function cachedFile(f, base, onProgress, signal) {
   const d = await dir();
-  const name = cacheName(f);
-  const done = await tryFile(d, name);
-  if (done) {
-    onProgress?.(done.size, done.size);
+  const done = await tryFile(d, f.path);
+  if (done && done.size === f.bytes) {
+    onProgress?.(f.bytes, f.bytes);
     return done;
   }
-  const p = await plan(f, signal);
-  const size = planSize(p);
-  const part = name + ".part";
+  if (done) await d.removeEntry(f.path);
+  const part = f.path + ".part";
   const partFile = await tryFile(d, part);
-  if (!(partFile && partFile.size === size)) {
-    await download({ url: fileUrl(f), part, prefix: p.prefix, pieces: p.pieces }, (n) => onProgress?.(n, size), signal);
+  if (!(partFile && partFile.size === f.bytes)) {
+    await download({ url: new URL(f.path, base).href, part, size: f.bytes }, (n) => onProgress?.(n, f.bytes), signal);
   }
   const ph = await d.getFileHandle(part);
   const got = (await ph.getFile()).size;
-  if (got !== size) throw new Error(`size mismatch for ${name}: got ${got}, expected ${size}`);
+  if (got !== f.bytes) throw new Error(`size mismatch for ${f.path}: got ${got}, expected ${f.bytes}`);
   if (ph.move) {
-    await ph.move(name);
-    return (await d.getFileHandle(name)).getFile();
+    await ph.move(f.path);
+    return (await d.getFileHandle(f.path)).getFile();
   }
   return ph.getFile(); // no rename support: the complete .part is used as is
 }
 
-// Bytes already on disk per file key (finished or partial), for progress and the settings view.
+// Bytes already on disk per file key (finished or partial), for the first-run screen.
 export async function cachedBytes() {
   const d = await dir();
   const out = {};
   for (const [k, f] of Object.entries(FILES)) {
-    const done = await tryFile(d, cacheName(f));
-    const part = done ? null : await tryFile(d, cacheName(f) + ".part");
-    out[k] = { done: !!done, bytes: (done || part)?.size || 0 };
+    const done = await tryFile(d, f.path);
+    const ok = done?.size === f.bytes;
+    const part = ok ? null : await tryFile(d, f.path + ".part");
+    out[k] = { done: ok, bytes: ok ? f.bytes : part?.size || 0 };
   }
   return out;
 }

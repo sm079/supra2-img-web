@@ -1,6 +1,8 @@
 import { GPU } from "../app/gpu/device.js";
 import { SafeTensors } from "../app/weights.js";
 import { FILES, cachedFile } from "../app/store.js";
+
+const MODELS = new URL(new URLSearchParams(location.search).get("models") || "../models/", location.href).href;
 import { T5Encoder } from "../app/models/t5.js";
 import { VAEDecoder } from "../app/models/vae.js";
 import { SupraPipeline } from "../app/pipeline.js";
@@ -75,8 +77,8 @@ try {
   let tokenizer = null;
   const needTok = only.some((o) => ["tok", "te"].includes(o));
   if (needTok) {
-    const tj = await cachedFile(FILES.tokenizer, progress("tokenizer"));
-    const tc = await cachedFile(FILES.tokenizerConfig);
+    const tj = await cachedFile(FILES.tokenizer, MODELS, progress("tokenizer"));
+    const tc = await cachedFile(FILES.tokenizerConfig, MODELS);
     tokenizer = new Tokenizer(JSON.parse(await tj.text()), JSON.parse(await tc.text()));
   }
   const ids = (text) => [...tokenizer.encode(text, { add_special_tokens: false }).ids.slice(0, 127), 1];
@@ -91,7 +93,7 @@ try {
 
   if (only.includes("te")) {
     const t0 = performance.now();
-    const te = await T5Encoder.load(gpu, await SafeTensors.open(await cachedFile(FILES.te, progress("text encoder"))));
+    const te = await T5Encoder.load(gpu, await SafeTensors.open(await cachedFile(FILES.te, MODELS, progress("text encoder"))));
     log(`text encoder loaded in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
     for (let i = 0; i < meta.prompts.length; i++) {
       const out = await te.encode(meta.prompts[i].ids);
@@ -102,7 +104,7 @@ try {
   }
 
   if (only.includes("vae")) {
-    const vae = await VAEDecoder.load(gpu, await SafeTensors.open(await cachedFile(FILES.vae, progress("vae"))));
+    const vae = await VAEDecoder.load(gpu, await SafeTensors.open(await cachedFile(FILES.vae, MODELS, progress("vae"))));
     const lat = await loadDump("vae_latent");
     const t0 = performance.now();
     const img = await vae.decode(lat, 32, 32);
@@ -116,7 +118,7 @@ try {
   if (meta.dit && (only.includes("dit") || only.includes("full"))) {
     const pipe = new SupraPipeline();
     pipe.gpu = gpu;
-    await pipe.load({ modelsBase: new URL(q.get("models") || "../models/", location.href).href, onStatus: (s) => { if (s.phase === "load" && s.frac === 0) log(`loading ${s.what}`); } });
+    await pipe.load({ modelsBase: MODELS, onStatus: (s) => { if (s.phase === "load" && s.frac === 0) log(`loading ${s.what}`); } });
     const noise = await loadDump("noise");
     if (only.includes("dit")) {
       const { patchify, unpatchify } = await import("../app/models/dit.js");
