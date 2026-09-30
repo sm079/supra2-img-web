@@ -5,8 +5,14 @@ text-to-image model, **entirely in the browser** on WebGPU. The weights are down
 (about 1 GB) and cached in the browser's Origin Private File System. Prompts and images never
 leave the page.
 
+**Live demo: [sm079.github.io/supra2-img-web](https://sm079.github.io/supra2-img-web/)** (recent Chrome
+or Edge on a computer with a graphics card; the first visit downloads about 1 GB)
+
 There is no ONNX/runtime dependency. The engine is a small set of hand-written WGSL kernels
-(`app/gpu/`, adapted from [anima-studio](../anima-studio)) that run the fp32 weights directly.
+(`app/gpu/`, adapted from [anima-studio](https://github.com/sm079/anima-studio)) that run the
+fp32 weights directly.
+
+![Supra2-Img Web: prompt and settings on the left, the generated image and session strip on the right](docs/screenshot.jpg)
 
 - The same outputs as SupraLabs' `inference.py`: 256 × 256 images, Euler flow sampling with
   classifier-free guidance, seeds that match `torch.manual_seed` on the CPU
@@ -17,35 +23,48 @@ There is no ONNX/runtime dependency. The engine is a small set of hand-written W
 
 ## Quick start
 
+The app is static files (`index.html` and `app/`), so any static host works. Pushing to `main`
+publishes them to GitHub Pages through `.github/workflows/pages.yml`. The model files are
+downloaded from Hugging Face (see below).
+
 ```bash
-python tools/convert_dit.py      # one-time: model_final_ema.pt -> models/supra2-img-ema.safetensors
-python tools/serve.py            # http://127.0.0.1:8080/ (any static server works)
+python tools/serve.py                 # http://127.0.0.1:8080/ (any static server works)
 ```
 
-Open the page in a WebGPU browser (recent Chrome or Edge), press **Download & start**, and
-generate. Later visits load from the browser's cache.
+Open the page in a WebGPU browser (recent Chrome or Edge) and press **Download & start**. Later
+visits load from the browser's cache.
 
-## Where the model files come from
+## Where the model files live
 
-| part | source | download |
+`tools/build_models.py` builds the five files the app needs from the original Hugging Face repos:
+
+| file | contents | size |
 |---|---|---|
-| Diffusion model | [SupraLabs/Supra2-IMG](https://huggingface.co/SupraLabs/Supra2-IMG) `model_final_ema.pt`, converted by `tools/convert_dit.py` | 397 MB |
-| Text encoder | [google/flan-t5-base](https://huggingface.co/google/flan-t5-base) `model.safetensors`, **encoder tensors only** | 418 MB (of 944 MB) |
-| Image decoder | [stabilityai/sd-vae-ft-mse](https://huggingface.co/stabilityai/sd-vae-ft-mse), **decoder tensors only** | 189 MB (of 319 MB) |
-| Tokenizer | google/flan-t5-base `tokenizer.json` | 2.3 MB |
+| `supra2-img-ema.safetensors` | [Supra2-IMG](https://huggingface.co/SupraLabs/Supra2-IMG)'s diffusion transformer, converted from `model_final_ema.pt` | 397 MB |
+| `flan-t5-base-encoder.safetensors` | [Flan-T5-Base](https://huggingface.co/google/flan-t5-base), encoder tensors only | 418 MB |
+| `sd-vae-ft-mse-decoder.safetensors` | [sd-vae-ft-mse](https://huggingface.co/stabilityai/sd-vae-ft-mse), decoder tensors only | 189 MB |
+| `tokenizer.json`, `tokenizer_config.json` | the Flan-T5 tokenizer | 2.3 MB |
 
-The text encoder, VAE and tokenizer come straight from the original repos, pinned to a commit
-(`app/store.js`). Hugging Face serves files with CORS and HTTP Range support, so the app first
-reads a safetensors file's JSON header, then downloads only the byte ranges of the tensors it
-needs and saves them as a smaller safetensors file. Interrupted downloads resume.
+Supra2-IMG is published as a pickled PyTorch checkpoint. The build reads it with
+`torch.load(weights_only=True)` (PyTorch's restricted unpickler, which never runs code from the
+file) and writes the EMA weights under their original names in float32, plus the checkpoint's
+stored unconditional text embedding as `uncond_text` (its one unmasked row). All weights stay
+float32; nothing is quantized.
 
-The diffusion model is published only as a pickled PyTorch checkpoint. `tools/convert_dit.py`
-reads it with `torch.load(weights_only=True)` (PyTorch's restricted unpickler, which never
-runs code from the file) and writes `supra2-img-ema.safetensors`: the EMA weights under their
-original names in float32, plus the checkpoint's stored unconditional text embedding as
-`uncond_text` (its one unmasked row). The app loads it from `./models/`; `?models=<url>`
-points it elsewhere. For a static deployment, host that file somewhere that allows CORS and
-Range requests (a Hugging Face model repo works) and set `MODELS_URL` in `app/main.js`.
+The files are published in the Hugging Face model repo
+[sm079/supra2-img-web](https://huggingface.co/sm079/supra2-img-web), and `MODELS_URL` in
+`app/main.js` points at it, **pinned to a commit** (`…/resolve/<commit>/`). Browsers cache the
+files by name, so after uploading new files, update the commit in `MODELS_URL`. Hugging Face
+allows cross-origin reads and HTTP Range requests, so downloads come straight from its CDN and
+interrupted downloads resume.
+
+To rebuild and use the files locally:
+
+```bash
+pip install torch safetensors huggingface_hub
+python tools/build_models.py          # -> models/
+# then open http://127.0.0.1:8080/?models=./models/
+```
 
 ## How it works
 
@@ -70,7 +89,7 @@ Engine layout:
   matrix, so a run's timestep conditioning for all steps is a single GEMM. Cross-attention
   keys and values are computed once per prompt.
 - `app/pipeline.js`, `app/store.js`, `app/download.js`: orchestration, the OPFS cache and the
-  ranged, resumable downloader
+  resumable downloader
 - `app/worker.js`, `app/engine.js`: the engine runs in a Web Worker (`?engine=page` runs it on
   the page)
 
@@ -82,6 +101,7 @@ architecture), and dumps inputs and outputs. `tools/check.html` runs each WebGPU
 the same inputs and compares them:
 
 ```bash
+python tools/build_models.py
 python tools/reference.py --out out/dump --dit
 python tools/serve.py   # then open http://127.0.0.1:8080/tools/check.html
 ```
