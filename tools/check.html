@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Engine Check</title>
+<style>
+  :root { --bg: #fff; --fg: #111; --ok: #0a7a36; --bad: #b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --ok: #5bd48a; --bad: #ff8a80; } }
+  body { background: var(--bg); color: var(--fg); font: 14px/1.5 ui-monospace, monospace; margin: 16px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  canvas { width: 256px; height: 256px; margin: 8px 8px 0 0; }
+</style>
+</head>
+<body>
+<h1>Engine check vs PyTorch reference</h1>
+<p>Compares each WebGPU component with the outputs of <code>tools/reference.py</code>.
+Query: <code>?dump=../out/dump/&amp;only=tok,noise,te,vae,dit,full</code> (dit and full need a dump made with <code>--dit</code>).</p>
+<pre id="log"></pre>
+<div id="images"></div>
+<script type="module" src="check.js"></script>
+</body>
+</html>

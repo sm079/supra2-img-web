@@ -1,3 +1,4 @@
-# reference dumps and other tool output
+# converted diffusion model (tools/convert_dit.py), reference dumps and other tool output
+/models/
 /out/
 __pycache__/

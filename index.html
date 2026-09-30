@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supra2-Img Web</title>
+<meta name="description" content="Text-to-image with SupraLabs' Supra2-IMG, running entirely in your browser on WebGPU.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%235a68ee'/%3E%3Cpath d='M21 10.5c-1-1.3-2.8-2-4.8-2-2.9 0-4.9 1.5-4.9 3.7 0 5 10.2 2.8 10.2 7.8 0 2.3-2.2 3.8-5.3 3.8-2.2 0-4.2-.9-5.2-2.3' stroke='white' stroke-width='2.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">S</span>
+      <span class="name">Supra2-Img <b>Web</b></span>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite">
+      <span class="dot" id="statusDot"></span><span id="statusText">Starting…</span>
+    </div>
+    <div class="bar-right">
+      <span class="chip" id="gpuChip" hidden></span>
+      <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <aside class="rail" aria-label="Image settings">
+    <div class="view">
+      <section class="group grow">
+        <div class="label-row">
+          <label for="prompt" class="label">Describe your image</label>
+          <button class="link" id="exampleBtn" type="button">Example</button>
+        </div>
+        <textarea id="prompt" spellcheck="false" placeholder="e.g. a red fox sitting in a snowy forest at sunrise, soft light"></textarea>
+      </section>
+
+      <details class="group neg" id="negBox">
+        <summary>Avoid <em>optional</em></summary>
+        <textarea id="negative" spellcheck="false" aria-label="What to avoid" placeholder="e.g. blurry, text, watermark"></textarea>
+        <p class="help">Replaces the model's built-in "no prompt" direction. Leave empty for the model's default.</p>
+      </details>
+
+      <section class="group">
+        <div class="label-row"><span class="label">Quality</span><span class="hint" id="stepsHint"></span></div>
+        <div class="param">
+          <div class="seg" id="quality" role="radiogroup" aria-label="Quality"></div>
+          <input type="range" id="steps" min="4" max="100" step="1" aria-label="Steps">
+          <output id="stepsOut"></output>
+        </div>
+      </section>
+
+      <section class="group">
+        <div class="label-row"><span class="label">Follow the prompt</span><span class="hint" id="cfgHint"></span></div>
+        <div class="param">
+          <input type="range" id="cfg" min="1" max="10" step="0.5" aria-label="Guidance scale">
+          <output id="cfgOut"></output>
+        </div>
+      </section>
+
+      <section class="group">
+        <div class="label-row">
+          <label class="label" for="seed">Seed</label>
+          <button class="pill" id="randomBtn" type="button" aria-pressed="true" title="Pick a new random seed for every image">⤨ New each time</button>
+        </div>
+        <div class="seed-row">
+          <input id="seed" inputmode="numeric" autocomplete="off">
+          <button class="icon-btn soft" id="rollBtn" type="button" title="Roll a new seed (and keep it)" aria-label="Roll a new seed">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r="1.3" class="fill"/><circle cx="15.5" cy="15.5" r="1.3" class="fill"/><circle cx="15.5" cy="8.5" r="1.3" class="fill"/><circle cx="8.5" cy="15.5" r="1.3" class="fill"/><circle cx="12" cy="12" r="1.3" class="fill"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <div class="go-row">
+        <button class="primary" id="goBtn" disabled><span id="goLabel">Generate</span><span class="go-sub" id="estimate"></span></button>
+        <select class="batch" id="batch" aria-label="How many images" title="How many images to queue">
+          <option value="1">×1</option><option value="4">×4</option><option value="8">×8</option><option value="16">×16</option>
+        </select>
+        <button class="icon-btn stop" id="stopBtn" type="button" hidden title="Stop and clear the queue" aria-label="Stop and clear the queue">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" class="fill"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="stage" aria-label="Result">
+    <div class="canvas-box" id="canvasBox">
+      <canvas id="canvas" width="256" height="256" hidden></canvas>
+
+      <div class="panel-center" id="welcome" hidden>
+        <h1>Make images on your own device</h1>
+        <p class="lead">Supra2-IMG is a tiny 104M-parameter text-to-image model by SupraLabs. It runs entirely in this browser: your prompts and images never leave your computer. The model is downloaded once and saved in the browser.</p>
+        <div class="dl-card" id="dlCard"></div>
+        <button class="primary wide" id="welcomeGo">Download &amp; start</button>
+        <p class="help center">Downloads come straight from Hugging Face and resume if interrupted.</p>
+      </div>
+
+      <div class="panel-center" id="loading" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <h2 id="loadingTitle">Getting ready…</h2>
+        <div class="bar-progress"><div id="loadingBar"></div></div>
+        <p class="help center" id="loadingText"></p>
+        <button class="ghost" id="loadingCancel" hidden>Cancel download</button>
+      </div>
+
+      <div class="panel-center" id="empty" hidden>
+        <div class="empty-art" aria-hidden="true">
+          <svg viewBox="0 0 132 104">
+            <rect class="frame" x="10" y="14" width="100" height="78" rx="12"/>
+            <path class="hill" d="M18 84l24-26 16 15 14-12 30 23z"/>
+            <circle class="hill" cx="78" cy="38" r="8"/>
+            <path class="spark" d="M112 10v14M105 17h14M122 34v8M118 38h8M24 4v8M20 8h8"/>
+          </svg>
+        </div>
+        <h2>Ready when you are</h2>
+        <p class="lead">Describe an image on the left and press <b>Generate</b>. Images are 256 × 256 pixels.</p>
+      </div>
+
+      <div class="progress-card" id="progress" hidden>
+        <div class="bar-progress"><div id="progressBar"></div></div>
+        <span id="progressText"></span>
+      </div>
+
+      <div class="error-card" id="errorCard" hidden></div>
+
+      <!-- every image from this session, covering the viewer -->
+      <div class="gallery" id="gallery" hidden>
+        <div class="gallery-head">
+          <span class="label" id="galleryTitle">This session</span>
+          <span class="help">Images are kept until you close the tab. Save the ones you want.</span>
+          <button class="icon-btn soft" id="galleryClose" type="button" title="Back to the image (Esc)" aria-label="Close">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="gallery-grid" id="galleryGrid"></div>
+      </div>
+    </div>
+
+    <div class="stage-foot" id="stageFoot" hidden>
+      <div class="info" id="info"></div>
+      <div class="strip-row">
+        <div class="strip" id="strip" aria-label="This session's images"></div>
+        <button class="all-btn" id="allBtn" type="button" title="Show all images">
+          <svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>
+          <span id="allCount">All</span>
+        </button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- settings -->
+<dialog id="settings" aria-labelledby="settingsTitle">
+  <form method="dialog" class="dialog">
+    <div class="dialog-head">
+      <h2 id="settingsTitle">Settings</h2>
+      <button class="icon-btn" value="close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <label class="field">
+      <span class="label">Display</span>
+      <select id="scaling">
+        <option value="smooth">Smooth scaling</option>
+        <option value="pixel">Sharp pixels</option>
+      </select>
+    </label>
+    <div class="storage">
+      <div><span class="label">Saved in this browser</span><p class="help" id="storageText"></p></div>
+      <div class="storage-actions">
+        <button class="ghost danger" type="button" id="clearBtn">Remove model</button>
+      </div>
+    </div>
+    <p class="help">Models: <a href="https://huggingface.co/SupraLabs/Supra2-IMG" target="_blank" rel="noopener">Supra2-IMG by SupraLabs</a> (Apache-2.0),
+      text encoder <a href="https://huggingface.co/google/flan-t5-base" target="_blank" rel="noopener">Flan-T5-Base by Google</a> (Apache-2.0),
+      image decoder <a href="https://huggingface.co/stabilityai/sd-vae-ft-mse" target="_blank" rel="noopener">sd-vae-ft-mse by Stability AI</a> (MIT).</p>
+  </form>
+</dialog>
+
+<div class="fatal" id="fatal" hidden></div>
+<script type="module" src="app/main.js"></script>
+</body>
+</html>
