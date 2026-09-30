@@ -1,8 +1,5 @@
-// Tensor sources read from Blobs (the OPFS cache): safetensors files and PyTorch zip
-// checkpoints. Both expose the same interface: has(name), info(name) -> { dtype, shape },
-// f32(name) -> Float32Array. uploadLinear / uploadConv turn them into GPU weights.
-
-import { readCheckpoint } from "./checkpoint.js";
+// Safetensors files read from Blobs (the OPFS cache): has(name), info(name) -> { dtype, shape },
+// f32(name) -> Float32Array. uploadLinear / uploadConv3 turn tensors into GPU weights.
 
 const BYTES = { F64: 8, F32: 4, BF16: 2, F16: 2, I64: 8, I32: 4, I16: 2, I8: 1, U8: 1, BOOL: 1 };
 
@@ -43,12 +40,14 @@ export class SafeTensors {
     const head = new DataView(await blob.slice(0, 8).arrayBuffer());
     const n = Number(head.getBigUint64(0, true));
     const header = JSON.parse(new TextDecoder().decode(await blob.slice(8, 8 + n).arrayBuffer()));
+    const metadata = header.__metadata__ || {};
     delete header.__metadata__;
-    return new SafeTensors(blob, header, 8 + n);
+    return new SafeTensors(blob, header, 8 + n, metadata);
   }
 
-  constructor(blob, header, dataStart) {
+  constructor(blob, header, dataStart, metadata = {}) {
     this.blob = blob;
+    this.metadata = metadata;
     this.header = header;
     this.dataStart = dataStart;
   }
@@ -80,35 +79,6 @@ export class SafeTensors {
       out.set(toF32(new Uint8Array(await this.blob.slice(off, off + rowBytes).arrayBuffer()), t.dtype), i * dim);
     }));
     return out;
-  }
-}
-
-// A PyTorch checkpoint (torch.save zip). The pickle is read by a small interpreter that only
-// builds data (dicts, lists, tensor references) and never runs code from the file.
-// `tensors` is the state dict inside it (e.g. obj.ema); `obj` is the whole unpickled object.
-export class TorchCheckpoint {
-  static async open(blob, pick = (obj) => obj) {
-    const ck = await readCheckpoint(blob);
-    return new TorchCheckpoint(ck, pick(ck.obj));
-  }
-
-  constructor(ck, tensors) {
-    this.ck = ck;
-    this.obj = ck.obj;
-    this.tensors = tensors;
-  }
-
-  has(name) {
-    return this.tensors?.[name]?.isTensor === true;
-  }
-
-  info(name) {
-    if (!this.has(name)) throw new Error(`missing tensor ${name}`);
-    return this.tensors[name];
-  }
-
-  f32(name) {
-    return this.ck.tensorF32(this.info(name));
   }
 }
 

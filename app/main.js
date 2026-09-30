@@ -3,6 +3,10 @@ import { FILES, TOTAL_BYTES, cachedBytes, storageBytes, clearCache } from "./sto
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
+// Folder holding the converted diffusion model (tools/convert_dit.py). ?models=<url> overrides it.
+const MODELS_URL = "./models/";
+const BASE = new URL(params.get("models") || MODELS_URL, location.href);
+if (!BASE.pathname.endsWith("/")) BASE.pathname += "/";
 
 // ------------------------------------------------------------------ choices (plain language)
 
@@ -193,6 +197,7 @@ async function loadModel() {
   const meter = rateMeter();
   try {
     await pipe.load({
+      modelsBase: BASE.href,
       signal: loadAbort.signal,
       onStatus: (s) => {
         if (s.phase === "download") {

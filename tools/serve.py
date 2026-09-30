@@ -2,8 +2,8 @@
 
   python tools/serve.py [--port 8080]   ->  http://localhost:8080/
 
-The app loads its model files from Hugging Face by default; open ?models=./models/ to use a
-local build from tools/build_assets.py instead.
+The app loads the converted diffusion model from ./models/ (tools/convert_dit.py) unless
+?models=<url> points elsewhere; everything else comes from Hugging Face.
 """
 
 from __future__ import annotations

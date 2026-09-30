@@ -64,7 +64,7 @@ export function timestepFeatures(t) {
 }
 
 export class SupraDiT {
-  // ck: TorchCheckpoint over the EMA state dict
+  // ck: SafeTensors with the EMA weights (tools/convert_dit.py)
   static async load(gpu, ck, onProgress) {
     const m = new SupraDiT(gpu);
     const D = CFG.dim;

@@ -42,8 +42,8 @@ class WorkerEngine {
     });
   }
 
-  async load({ onStatus, signal } = {}) {
-    const r = await this.call({ type: "load" }, { onStatus, signal });
+  async load({ onStatus, signal, modelsBase } = {}) {
+    const r = await this.call({ type: "load", modelsBase }, { onStatus, signal });
     this.ready = true;
     this.gpu = r.gpu;
   }

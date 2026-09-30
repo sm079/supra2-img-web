@@ -1,10 +1,12 @@
 // Model files: where they come from, and the one-time download into the Origin Private File
 // System (OPFS).
 //
-// Everything is fetched straight from the original Hugging Face repos, pinned to a commit, so
-// there is no converted copy to host. From the two large safetensors files only the needed
-// tensors are downloaded (Flan-T5's encoder, the VAE's decoder): the app fetches the file's JSON
-// header first, then just those byte ranges, and saves them as a smaller safetensors file.
+// The text encoder, VAE and tokenizer are fetched straight from their original Hugging Face repos,
+// pinned to a commit. From those two large safetensors files only the needed tensors are
+// downloaded (Flan-T5's encoder, the VAE's decoder): the app fetches the file's JSON header
+// first, then just those byte ranges, and saves them as a smaller safetensors file.
+// The diffusion model is SupraLabs' checkpoint converted to safetensors (tools/convert_dit.py),
+// loaded from MODELS_BASE (see setModelsBase).
 //
 // Files are written to "<name>.part" in place (download.js), so an interrupted download resumes
 // with an HTTP Range request. A finished file is renamed to its final name and reused on later
@@ -18,8 +20,8 @@ const T5_REV = "7bcac572ce56db69c1ea7c8af255c5d7c9672fc2";
 // bytes: download size (for extracts, the kept tensor data; the new header adds a few KB)
 export const FILES = {
   dit: {
-    label: "image model", repo: "SupraLabs/Supra2-IMG", rev: "b22ffe6c85983a63a535ff9bfd40caacc428dddf",
-    path: "model_final_ema.pt", bytes: 416651529,
+    // converted from SupraLabs/Supra2-IMG@b22ffe6c model_final_ema.pt
+    label: "image model", path: "supra2-img-ema.safetensors", cache: "supra2-img--b22ffe6c--ema.safetensors", bytes: 416405344,
   },
   te: {
     label: "text encoder", repo: "google/flan-t5-base", rev: T5_REV, path: "model.safetensors", bytes: 438514176,
@@ -35,9 +37,15 @@ export const FILES = {
 };
 export const TOTAL_BYTES = Object.values(FILES).reduce((a, f) => a + f.bytes, 0);
 
-export const fileUrl = (f) => `${HF}/${f.repo}/resolve/${f.rev}/${f.path}`;
+let modelsBase = null;
+// Where files without a repo (the converted diffusion model) are downloaded from.
+export function setModelsBase(url) {
+  modelsBase = url;
+}
+
+export const fileUrl = (f) => (f.repo ? `${HF}/${f.repo}/resolve/${f.rev}/${f.path}` : new URL(f.path, modelsBase).href);
 // OPFS name: repo, commit and what was kept
-export const cacheName = (f) => `${f.repo.replace("/", "--")}--${f.rev.slice(0, 8)}--${f.keep ? "extract--" : ""}${f.path}`;
+export const cacheName = (f) => f.cache || `${f.repo.replace("/", "--")}--${f.rev.slice(0, 8)}--${f.keep ? "extract--" : ""}${f.path}`;
 
 const IN_WORKER = typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope;
 

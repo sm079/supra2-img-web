@@ -10,8 +10,8 @@ little-endian float32 files plus an index.json:
 - VAE: diffusers AutoencoderKL (stabilityai/sd-vae-ft-mse) decoding a fixed latent.
 - Noise: torch.randn on the CPU generator, which app/rng.js reproduces.
 - DiT (--dit): an independent implementation of the architecture in SupraLabs' inference.py,
-  loading model_final_ema.pt with torch.load(weights_only=True) (the restricted unpickler that
-  only builds tensors and plain containers). It samples one image with the app's defaults.
+  reading the converted weights from tools/convert_dit.py. It samples one image with the app's
+  defaults (unconditional states from the stored embedding, as inference.py does).
 
 Files come from the Hugging Face cache (downloaded on first use), pinned to the same commits as
 app/store.js.
@@ -30,7 +30,6 @@ import torch.nn.functional as F
 
 T5_REPO, T5_REV = "google/flan-t5-base", "7bcac572ce56db69c1ea7c8af255c5d7c9672fc2"
 VAE_REPO, VAE_REV = "stabilityai/sd-vae-ft-mse", "31f26fdeee1355a5c34592e401dd41e45d25a493"
-DIT_REPO, DIT_REV = "SupraLabs/Supra2-IMG", "b22ffe6c85983a63a535ff9bfd40caacc428dddf"
 PROMPTS = [
     "a sea jellyfish floating in the pitch-black ocean depths",
     "A cozy cabin in a snowy forest at night, warm light in the windows, (aurora) in the sky!",
@@ -114,6 +113,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="out/dump")
     ap.add_argument("--dit", action="store_true", help="also sample an image with the diffusion model")
+    ap.add_argument("--dit-file", default="models/supra2-img-ema.safetensors", help="converted model (tools/convert_dit.py)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--steps", type=int, default=50)
     ap.add_argument("--cfg", type=float, default=3.0)
@@ -149,20 +149,17 @@ def main():
 
     meta = {"prompts": prompts}
     if args.dit:
-        from huggingface_hub import hf_hub_download
+        from safetensors.torch import load_file
 
-        path = hf_hub_download(DIT_REPO, "model_final_ema.pt", revision=DIT_REV)
-        state = torch.load(path, map_location="cpu", weights_only=True)
-        cfg = state.get("config", {}) if isinstance(state, dict) else {}
-        sd = state["ema"] if "ema" in state else state.get("model", state)
-        sd = {k: v.float() for k, v in sd.items()}
+        sd = load_file(args.dit_file)
+        uncond = sd.pop("uncond_text", None)
         prompt = PROMPTS[0]
         ids = prompts[0]["ids"]
         ctx = te(input_ids=torch.tensor([ids])).last_hidden_state
         mask = torch.ones(1, len(ids))
-        if "uncond_text" in cfg:
-            uctx = cfg["uncond_text"].float()[None]
-            umask = cfg["uncond_mask"].float()[None]
+        if uncond is not None:
+            uctx = uncond.float()[None]
+            umask = torch.ones(1, uctx.shape[1])
         else:
             uid = tok("", truncation=True, max_length=128)["input_ids"]
             uctx = te(input_ids=torch.tensor([uid])).last_hidden_state

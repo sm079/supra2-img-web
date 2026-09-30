@@ -116,7 +116,7 @@ try {
   if (meta.dit && (only.includes("dit") || only.includes("full"))) {
     const pipe = new SupraPipeline();
     pipe.gpu = gpu;
-    await pipe.load({ onStatus: (s) => { if (s.phase === "load" && s.frac === 0) log(`loading ${s.what}`); } });
+    await pipe.load({ modelsBase: new URL(q.get("models") || "../models/", location.href).href, onStatus: (s) => { if (s.phase === "load" && s.frac === 0) log(`loading ${s.what}`); } });
     const noise = await loadDump("noise");
     if (only.includes("dit")) {
       const { patchify, unpatchify } = await import("../app/models/dit.js");

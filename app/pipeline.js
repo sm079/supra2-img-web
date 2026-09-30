@@ -2,8 +2,8 @@
 // with classifier-free guidance -> VAE. Follows SupraLabs' inference.py.
 
 import { GPU } from "./gpu/device.js";
-import { SafeTensors, TorchCheckpoint } from "./weights.js";
-import { FILES, cachedFile, requestPersistence } from "./store.js";
+import { SafeTensors } from "./weights.js";
+import { FILES, cachedFile, requestPersistence, setModelsBase } from "./store.js";
 import { Tokenizer } from "./vendor/tokenizers.min.mjs";
 import { T5Encoder } from "./models/t5.js";
 import { SupraDiT, CFG, patchify, unpatchify } from "./models/dit.js";
@@ -41,9 +41,11 @@ export class SupraPipeline {
     this.conds = new Map(); // prompt text -> prepared cross-attention K/V (most recent few)
   }
 
-  // Downloads (first time only) and loads everything onto the GPU.
-  async load({ onStatus = () => {}, signal } = {}) {
+  // Downloads (first time only) and loads everything onto the GPU. modelsBase: URL of the folder
+  // holding the converted diffusion model.
+  async load({ onStatus = () => {}, signal, modelsBase } = {}) {
     if (this.ready) { onStatus({ phase: "ready" }); return; }
+    setModelsBase(modelsBase);
     await requestPersistence();
     this.gpu = this.gpu || (await GPU.create(this.gpuOptions));
     const gpu = this.gpu;
@@ -67,13 +69,15 @@ export class SupraPipeline {
     this.te = await T5Encoder.load(gpu, await SafeTensors.open(files.te), stage("text encoder"));
 
     stage("image model")(0);
-    // inference.py: state["ema"] if present, else state["model"], else the state itself
-    const ck = await TorchCheckpoint.open(files.dit, (o) => o?.ema ?? o?.model ?? o);
-    this.config = ck.obj?.config && typeof ck.obj.config === "object" ? ck.obj.config : {};
-    if (this.config.patch != null && this.config.patch !== CFG.patch) throw new Error(`checkpoint patch size ${this.config.patch} is not supported`);
-    this.ctxLen = Number.isFinite(this.config.ctx_len) ? this.config.ctx_len : 128;
-    this.dit = await SupraDiT.load(gpu, ck, stage("image model"));
-    this.uncondCtx = await this.storedUncond(ck);
+    const st = await SafeTensors.open(files.dit);
+    let config = {};
+    try { config = JSON.parse(st.metadata.config || "{}"); } catch { /* keep defaults */ }
+    if (config.patch != null && config.patch !== CFG.patch) throw new Error(`checkpoint patch size ${config.patch} is not supported`);
+    this.ctxLen = Number.isFinite(config.ctx_len) ? config.ctx_len : 128;
+    this.dit = await SupraDiT.load(gpu, st, stage("image model"));
+    // the unconditional text states stored with the checkpoint (unmasked rows only); without
+    // them the empty prompt is encoded instead (inference.py's fallback)
+    this.uncondCtx = st.has("uncond_text") ? { data: await st.f32("uncond_text"), L: st.info("uncond_text").shape[0] } : null;
 
     stage("image decoder")(0);
     this.vae = await VAEDecoder.load(gpu, await SafeTensors.open(files.vae));
@@ -81,22 +85,6 @@ export class SupraPipeline {
     await gpu.sync();
     this.ready = true;
     onStatus({ phase: "ready" });
-  }
-
-  // The unconditional text states stored with the checkpoint (config.uncond_text / uncond_mask),
-  // reduced to the unmasked rows. null: encode the empty prompt instead (inference.py fallback).
-  async storedUncond(ck) {
-    const t = this.config.uncond_text;
-    if (!t?.isTensor) return null;
-    const data = await ck.ck.tensorF32(t);
-    const D = CFG.ctxDim;
-    const L = data.length / D;
-    const mask = this.config.uncond_mask?.isTensor ? await ck.ck.tensorF32(this.config.uncond_mask) : new Float32Array(L).fill(1);
-    const rows = [];
-    for (let i = 0; i < L; i++) if (mask[i] > 0) rows.push(i);
-    const out = new Float32Array(rows.length * D);
-    rows.forEach((r, i) => out.set(data.subarray(r * D, (r + 1) * D), i * D));
-    return { data: out, L: rows.length };
   }
 
   // Flan-T5 ids with </s>, truncated to the checkpoint's context length like the HF tokenizer.

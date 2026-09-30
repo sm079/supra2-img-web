@@ -34,7 +34,7 @@ async function handle(msg) {
   try {
     if (type === "load") {
       pipe = pipe || new SupraPipeline();
-      await pipe.load({ signal: ac.signal, onStatus: (s) => reply({ type: "status", status: s }) });
+      await pipe.load({ modelsBase: msg.modelsBase, signal: ac.signal, onStatus: (s) => reply({ type: "status", status: s }) });
       reply({ type: "result", gpu: gpuInfo() });
     } else if (type === "generate") {
       const res = await pipe.generate({
