@@ -10,7 +10,7 @@ little-endian float32 files plus an index.json:
 - VAE: diffusers AutoencoderKL (stabilityai/sd-vae-ft-mse) decoding a fixed latent.
 - Noise: torch.randn on the CPU generator, which app/rng.js reproduces.
 - DiT (--dit): an independent implementation of the architecture in SupraLabs' inference.py,
-  reading the converted weights from tools/convert_dit.py. It samples one image with the app's
+  reading the converted weights from tools/build_models.py. It samples one image with the app's
   defaults (unconditional states from the stored embedding, as inference.py does).
 
 Files come from the Hugging Face cache (downloaded on first use), pinned to the same commits as
@@ -113,7 +113,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="out/dump")
     ap.add_argument("--dit", action="store_true", help="also sample an image with the diffusion model")
-    ap.add_argument("--dit-file", default="models/supra2-img-ema.safetensors", help="converted model (tools/convert_dit.py)")
+    ap.add_argument("--dit-file", default="models/supra2-img-ema.safetensors", help="converted model (tools/build_models.py)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--steps", type=int, default=50)
     ap.add_argument("--cfg", type=float, default=3.0)
