@@ -7,6 +7,37 @@
 const RING_SLOT = 256;
 const RING_SLOTS = 8192;
 
+// Errors for a missing or unusable GPU carry a recognizable name (it survives the trip from the
+// engine worker to the page): NoWebGPU, NoAdapter or NoDevice.
+function gpuError(name, message) {
+  const e = new Error(message);
+  e.name = name;
+  return e;
+}
+
+const ADAPTER_OPTIONS = { powerPreference: "high-performance" };
+
+// requestAdapter() can hang on broken GPU setups; resolves to `fallback` after `ms` instead.
+function requestAdapter(ms, fallback) {
+  return Promise.race([
+    navigator.gpu.requestAdapter(ADAPTER_OPTIONS),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+// Checks, without creating a device, whether this browser can give us a GPU at all.
+// Returns { ok: true } or { ok: false, reason: "NoWebGPU" | "NoAdapter" }. A browser that is
+// slow to answer gets the benefit of the doubt (GPU.create reports it if it never answers).
+export async function probeGPU() {
+  if (!navigator.gpu) return { ok: false, reason: "NoWebGPU" };
+  try {
+    const adapter = await requestAdapter(10000, "slow");
+    return adapter ? { ok: true } : { ok: false, reason: "NoAdapter" };
+  } catch {
+    return { ok: false, reason: "NoAdapter" };
+  }
+}
+
 export class Tensor {
   constructor(gpu, buf, shape, bytes) {
     this.gpu = gpu;
@@ -59,21 +90,27 @@ class BufferPool {
 export class GPU {
   // profile: time every dispatch with timestamp queries (diagnostics only; tools/profile.html)
   static async create({ profile = false } = {}) {
-    if (!navigator.gpu) throw new Error("WebGPU is not available in this browser.");
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
-    if (!adapter) throw new Error("No WebGPU adapter found.");
+    if (!navigator.gpu) throw gpuError("NoWebGPU", "WebGPU is not available in this browser.");
+    const adapter = await requestAdapter(30000, "timeout");
+    if (adapter === "timeout") throw gpuError("NoAdapter", "The graphics hardware didn't respond to WebGPU.");
+    if (!adapter) throw gpuError("NoAdapter", "No WebGPU adapter found.");
     const L = adapter.limits;
     const timing = profile && adapter.features.has("timestamp-query");
     if (profile && !timing) console.warn("timestamp-query not supported: profiling disabled");
-    const device = await adapter.requestDevice({
-      requiredFeatures: timing ? ["timestamp-query"] : [],
-      requiredLimits: {
-        maxBufferSize: L.maxBufferSize,
-        maxStorageBufferBindingSize: L.maxStorageBufferBindingSize,
-        maxComputeWorkgroupStorageSize: L.maxComputeWorkgroupStorageSize,
-        maxStorageBuffersPerShaderStage: Math.min(10, L.maxStorageBuffersPerShaderStage),
-      },
-    });
+    let device;
+    try {
+      device = await adapter.requestDevice({
+        requiredFeatures: timing ? ["timestamp-query"] : [],
+        requiredLimits: {
+          maxBufferSize: L.maxBufferSize,
+          maxStorageBufferBindingSize: L.maxStorageBufferBindingSize,
+          maxComputeWorkgroupStorageSize: L.maxComputeWorkgroupStorageSize,
+          maxStorageBuffersPerShaderStage: Math.min(10, L.maxStorageBuffersPerShaderStage),
+        },
+      });
+    } catch (e) {
+      throw gpuError("NoDevice", `The graphics card couldn't be started (${e.message}).`);
+    }
     const info = adapter.info || {};
     const gpu = new GPU(device, info);
     if (timing) gpu.profiler = new Profiler(device);

@@ -1,4 +1,5 @@
 import { createEngine } from "./engine.js";
+import { probeGPU } from "./gpu/device.js";
 import { FILES, TOTAL_BYTES, cachedBytes, storageBytes, clearCache } from "./store.js";
 
 const $ = (id) => document.getElementById(id);
@@ -101,12 +102,49 @@ function showError(msg) {
   showError.t = setTimeout(() => { el.hidden = true; }, 9000);
 }
 
+const MOBILE = navigator.userAgentData?.mobile || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+// Full-screen explanations for devices that can't run the model at all.
+const UNSUPPORTED = {
+  NoWebGPU: {
+    title: "This browser can't run Supra2-Img Web",
+    text: MOBILE
+      ? "The app needs WebGPU, which this browser doesn't offer on your phone or tablet. It works best on a computer with Chrome or Edge. On an iPhone or iPad, try the latest Safari (iOS 26 or later)."
+      : "The app needs WebGPU, which this browser doesn't offer or has turned off. Use a recent version of Chrome or Edge, or Safari 26 on a Mac.",
+  },
+  NoAdapter: {
+    title: "No usable graphics hardware found",
+    text: MOBILE
+      ? "This browser supports WebGPU but couldn't use your phone or tablet's graphics hardware. Many mobile devices aren't supported yet. Try a computer with Chrome or Edge."
+      : "This browser supports WebGPU but couldn't find a graphics card it can use. This happens on computers without a graphics chip, in virtual machines and remote desktops, or when hardware acceleration is turned off. In Chrome or Edge, check Settings → System → “Use graphics acceleration when available”, then restart the browser.",
+  },
+  NoDevice: {
+    title: "The graphics card couldn't be started",
+    text: `This browser found graphics hardware but couldn't start it for WebGPU. Updating the browser and graphics drivers often helps.${MOBILE ? " Many phones and tablets aren't supported yet; a computer with Chrome or Edge works best." : ""}`,
+  },
+};
+
+function showUnsupported(reason, detail = "") {
+  const u = UNSUPPORTED[reason];
+  const el = $("fatal");
+  el.innerHTML = `<div><h2>${esc(u.title)}</h2><p>${esc(u.text)}</p>${detail ? `<p class="detail">${esc(detail)}</p>` : ""}</div>`;
+  el.hidden = false;
+  setStatus(u.title, "err");
+}
+
 function friendlyError(e) {
   const m = String(e?.message || e);
-  if (/device lost|out of memory|OOM|allocation/i.test(m)) return "Your graphics card ran out of memory. Close other tabs or apps that use it and reload the page.";
+  if (UNSUPPORTED[e?.name]) return `${UNSUPPORTED[e.name].title}. ${UNSUPPORTED[e.name].text}`;
+  if (/device lost|out of memory|OOM|allocation/i.test(m)) {
+    return MOBILE
+      ? "Your phone or tablet ran out of graphics memory. The model needs about 1 GB: close other apps and tabs and reload, or use a computer."
+      : "Your graphics card ran out of memory. Close other tabs or apps that use it and reload the page.";
+  }
   if (/HTTP|fetch|network|Failed to fetch/i.test(m)) return "The download was interrupted. Check your connection and try again.";
-  if (/quota|storage|space/i.test(m)) return "Not enough storage space in this browser.";
-  return "Something went wrong: " + m;
+  if (/quota|storage|space/i.test(m)) return `Not enough storage space in this browser. The model needs about 1 GB free on your ${MOBILE ? "phone or tablet" : "computer"}.`;
+  return MOBILE
+    ? `This phone or tablet couldn't run the model (${m}). Many mobile devices aren't supported yet; a computer with Chrome or Edge works best.`
+    : `Something went wrong: ${m}`;
 }
 
 function radioGroup(el, items, isOn, onPick) {
@@ -224,6 +262,7 @@ async function loadModel() {
     phase = "welcome";
     if (e.name === "AbortError") { ensureModel(); return; }
     console.error(e);
+    if (UNSUPPORTED[e.name]) { showUnsupported(e.name, e.message); return; }
     setStatus("Couldn't load the model", "err");
     showWelcome(await cachedBytes());
     showError(friendlyError(e));
@@ -611,12 +650,10 @@ async function openSettings() {
 // ------------------------------------------------------------------ init
 
 async function init() {
-  if (!navigator.gpu) {
-    $("fatal").hidden = false;
-    $("fatal").textContent = "This browser can't run Supra2-Img Web.\n\nIt needs WebGPU: use a recent version of Chrome, Edge or Safari, or Firefox 141+ on Windows.";
-    return;
-  }
+  // check for a usable GPU before offering a 1 GB download
   setStatus("Starting…", "busy");
+  const probe = await probeGPU();
+  if (!probe.ok) { showUnsupported(probe.reason); return; }
   pipe = await createEngine({ inPage: params.get("engine") === "page" });
 
   // prompt
