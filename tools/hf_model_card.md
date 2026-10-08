@@ -15,6 +15,9 @@ base_model:
 
 # Supra2-Img Web model files
 
+**Live demo: [sm079.github.io/supra2-img-web](https://sm079.github.io/supra2-img-web/)** (recent Chrome
+or Edge on a computer with a graphics card; the first visit downloads about 1 GB)
+
 Model files for [Supra2-Img Web](https://github.com/sm079/supra2-img-web), which runs
 [SupraLabs' Supra2-IMG](https://huggingface.co/SupraLabs/Supra2-IMG) text-to-image in the browser
 on WebGPU. They are **unofficial, modified** repackagings of the original models, made with
