@@ -128,5 +128,7 @@ A WebGPU browser and a GPU with room for the fp32 weights (about 1 GB) plus a li
 
 ## License
 
+The code is MIT-licensed; see [LICENSE](LICENSE).
+
 The model weights keep their own licenses: Supra2-IMG (Apache-2.0), Flan-T5-Base (Apache-2.0),
 sd-vae-ft-mse (MIT). The vendored tokenizer library is Apache-2.0.
